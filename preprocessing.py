@@ -11,8 +11,9 @@ from detectron2.engine import DefaultPredictor
 from carvekit.api.high import HiInterface
 
 class TryOnDiffusionDataset(Dataset):
-    def __init__(self, image_paths, densepose_config_path, densepose_weights_path, transform=None):
-        self.image_paths = image_paths
+    def __init__(self, person_image_paths, garment_image_paths, densepose_config_path, densepose_weights_path, transform=None):
+        self.person_image_paths = person_image_paths
+        self.garment_image_paths = garment_image_paths
         self.transform = transform
         self.opWrapper = op.WrapperPython()
         self.opWrapper.configure(op.WrapperPython.get_default_wrapper_options())
@@ -21,18 +22,18 @@ class TryOnDiffusionDataset(Dataset):
         self.bg_remover = HiInterface(object_type="object")
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.person_image_paths)
 
     def __getitem__(self, idx):
         # Load person image
-        image_path = self.image_paths[idx]
-        image = Image.open(image_path)
+        person_image_path = self.person_image_paths[idx]
+        person_image = Image.open(person_image_path)
 
         # Predict human parsing map and 2D pose keypoints for person image using DensePose
-        Sp, Jp = self.get_densepose_output(image)
+        Sp, Jp = self.get_densepose_output(person_image)
 
         # Predict human parsing map and 2D pose keypoints for person image using OpenPose
-        Sp_op, Jp_op = self.get_openpose_output(image)
+        Sp_op, Jp_op = self.get_openpose_output(person_image)
 
         # Load garment image (assuming you have a separate list of garment image paths)
         garment_image_path = self.garment_image_paths[idx]
@@ -45,7 +46,7 @@ class TryOnDiffusionDataset(Dataset):
         Ic = self.segment_clothing(garment_image, Sp)
 
         # Generate clothing-agnostic RGB image for the person image
-        Ia = self.generate_clothing_agnostic_image(image, Sp, Jp)
+        Ia = self.generate_clothing_agnostic_image(person_image, Sp, Jp)
 
         if self.transform:
             Ia = self.transform(Ia)
