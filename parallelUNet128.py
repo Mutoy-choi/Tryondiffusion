@@ -1,6 +1,6 @@
 import torch.nn as nn
 from utils import *
-from Unet import *
+from train import *
 
 class ParallelUNet128(nn.Module):
     def __init__(self, d_model=128):
