@@ -1,40 +1,86 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from utils import *
-from train import *
 
-class ParallelUNet128(nn.Module):
-    def __init__(self, d_model=128):
-        super(ParallelUNet128, self).__init__()
-        self.garment_unet = GarmentUNet()
-        self.person_unet = PersonUNet()
-        self.feature_modulation = FeatureModulation(channels=d_model)
-        self.positional_encoding = PositionalEncoding(d_model)
-        self.noise_augmentation = NoiseConditioningAugmentation(channels=3)
-        self.efficient_unet = EfficientUNet()
-        self.warp_and_blend_single_pass = WarpAndBlendSinglePass(d_model)
-        self.clip_pooling = CLIP1DAttentionPooling(d_model=d_model)
-        self.multi_head_cross_attention = MultiHeadCrossAttention(d_model=d_model, num_heads=8)
+# Feature-wise Linear Modulation (FiLM) Layer
+class FiLM(nn.Module):
+    def __init__(self, num_features):
+        super(FiLM, self).__init__()
+        self.gamma = nn.Parameter(torch.ones(1, num_features, 1, 1))
+        self.beta = nn.Parameter(torch.zeros(1, num_features, 1, 1))
 
-    def forward(self, garment_input, person_input, pose_keypoints, time_step):
-        # Apply noise conditioning augmentation
-        garment_input = self.noise_augmentation(garment_input)
-        person_input = self.noise_augmentation(person_input)
+    def forward(self, x):
+        return self.gamma * x + self.beta
 
-        garment_features = self.garment_unet(garment_input)
-        person_features = self.person_unet(person_input)
+# Residual Block with FiLM
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.film = FiLM(out_channels)
+        self.activation = nn.ReLU()
 
-        # Apply multi-head cross attention
-        combined_features = self.multi_head_cross_attention(person_features, garment_features, garment_features)
+    def forward(self, x):
+        residual = x
+        x = self.conv1(x)
+        x = self.activation(x)
+        x = self.conv2(x)
+        x = self.film(x)
+        x += residual
+        return x
 
-        # Apply positional encoding for pose keypoints and time step
-        pose_encoding = self.positional_encoding(pose_keypoints)
-        time_step_encoding = self.positional_encoding(time_step)
-        combined_features += pose_encoding + time_step_encoding
+# UNet Block with FiLM + ResBlock + optional Self-Attention + optional Cross-Attention
+class UNetBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, num_res_blocks, attention_type=None):
+        super(UNetBlock, self).__init__()
+        self.blocks = nn.ModuleList()
+        for _ in range(num_res_blocks):
+            self.blocks.append(ResBlock(in_channels, out_channels))
+        if attention_type == 'self':
+            self.blocks.append(SelfAttention(out_channels))
+        elif attention_type == 'cross':
+            self.blocks.append(CrossAttention(out_channels))
 
-        # Apply feature modulation
-        modulated_features = self.feature_modulation(combined_features)
+    def forward(self, x, y=None):
+        for block in self.blocks:
+            if isinstance(block, CrossAttention):
+                x = block(x, y)
+            else:
+                x = block(x)
+        return x
 
-        # Apply Efficient-UNet for super resolution
-        output = self.efficient_unet(modulated_features)
+# Main Parallel-UNet Model
+class ParallelUNet(nn.Module):
+    def __init__(self):
+        super(ParallelUNet, self).__init__()
+        # Define the UNet blocks based on the given structure
+        self.initial_conv = nn.Conv2d(6, 128, kernel_size=3, padding=1)
+        self.blocks = nn.ModuleList([
+            UNetBlock(128, 128, 3),
+            UNetBlock(128, 64, 4),
+            UNetBlock(64, 32, 6, attention_type='self'),
+            UNetBlock(32, 16, 7, attention_type='cross'),
+            UNetBlock(16, 16, 7, attention_type='cross'),
+            UNetBlock(16, 32, 6),
+            UNetBlock(32, 64, 4),
+            UNetBlock(64, 128, 3)
+        ])
+        self.final_conv = nn.Conv2d(128, 3, kernel_size=3, padding=1)
 
-        return output
+    def forward(self, x):
+        x = self.initial_conv(x)
+        for block in self.blocks:
+            x = block(x)
+        x = self.final_conv(x)
+        return x
+
+# Instantiate the model
+model = ParallelUNet()
+
+
+
+
+
+

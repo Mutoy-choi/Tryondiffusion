@@ -64,31 +64,44 @@ class CrossAttention(nn.Module):
         output = output.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.d_model)
         return output
 
-class MultiHeadCrossAttention(nn.Module):
-    def __init__(self, d_model, num_heads):
-        super(MultiHeadCrossAttention, self).__init__()
-        self.num_heads = num_heads
-        self.d_model = d_model
-        self.depth = d_model // num_heads
+class SelfAttention(nn.Module):
+    def __init__(self, in_channels):
+        super(SelfAttention, self).__init__()
+        self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.softmax = nn.Softmax(dim=-1)
 
-        self.query = nn.Linear(d_model, d_model)
-        self.key = nn.Linear(d_model, d_model)
-        self.value = nn.Linear(d_model, d_model)
-        self.scaled_dot_product_attention = ScaledDotProductAttention(d_model)
+    def forward(self, x):
+        B, C, H, W = x.size()
+        Q = self.query(x).view(B, -1, H * W).permute(0, 2, 1)
+        K = self.key(x).view(B, -1, H * W)
+        V = self.value(x).view(B, -1, H * W)
 
-    def split_heads(self, x, batch_size):
-        x = x.view(batch_size, -1, self.num_heads, self.depth)
-        return x.permute(0, 2, 1, 3)
+        attention = self.softmax(torch.bmm(Q, K))
+        out = torch.bmm(V, attention.permute(0, 2, 1))
+        out = out.view(B, C, H, W)
+        return out
 
-    def forward(self, query_input, key_input, value_input):
-        batch_size = query_input.size(0)
-        query = self.split_heads(self.query(query_input), batch_size)
-        key = self.split_heads(self.key(key_input), batch_size)
-        value = self.split_heads(self.value(value_input), batch_size)
+# Cross-Attention Layer
+class CrossAttention(nn.Module):
+    def __init__(self, in_channels):
+        super(CrossAttention, self).__init__()
+        self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
+        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.softmax = nn.Softmax(dim=-1)
 
-        output = self.scaled_dot_product_attention(query, key, value)
-        output = output.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.d_model)
-        return output
+    def forward(self, x, y):
+        B, C, H, W = x.size()
+        Q = self.query(x).view(B, -1, H * W).permute(0, 2, 1)
+        K = self.key(y).view(B, -1, H * W)
+        V = self.value(y).view(B, -1, H * W)
+
+        attention = self.softmax(torch.bmm(Q, K))
+        out = torch.bmm(V, attention.permute(0, 2, 1))
+        out = out.view(B, C, H, W)
+        return out
 
 
 class PoseEmbedding(nn.Module):
@@ -100,15 +113,28 @@ class PoseEmbedding(nn.Module):
         return self.linear(pose_keypoints)
 
 class FiLM(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, num_features):
         super(FiLM, self).__init__()
-        self.gamma = nn.Linear(channels, channels)
-        self.beta = nn.Linear(channels, channels)
+        self.gamma = nn.Parameter(torch.ones(1, num_features, 1, 1))
+        self.beta = nn.Parameter(torch.zeros(1, num_features, 1, 1))
 
     def forward(self, x, pose_embedding):
         gamma = self.gamma(pose_embedding)
         beta = self.beta(pose_embedding)
         return gamma * x + beta
+
+class ResBlk(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResBlk, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
+    def forward(self, x):
+        residual = x
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x += residual
+        return x
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
