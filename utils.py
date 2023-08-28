@@ -38,50 +38,26 @@ class WarpAndBlend(nn.Module):
         return blended_output
 
 
-class CrossAttention(nn.Module):
-    def __init__(self, d_model, num_heads):
-        super(CrossAttention, self).__init__()
-        self.num_heads = num_heads
-        self.d_model = d_model
-        self.depth = d_model // num_heads
-
-        self.query = nn.Linear(d_model, d_model)
-        self.key = nn.Linear(d_model, d_model)
-        self.value = nn.Linear(d_model, d_model)
-        self.scaled_dot_product_attention = ScaledDotProductAttention(d_model)
-
-    def split_heads(self, x, batch_size):
-        x = x.view(batch_size, -1, self.num_heads, self.depth)
-        return x.permute(0, 2, 1, 3)
-
-    def forward(self, query_input, key_input, value_input):
-        batch_size = query_input.size(0)
-        query = self.split_heads(self.query(query_input), batch_size)
-        key = self.split_heads(self.key(key_input), batch_size)
-        value = self.split_heads(self.value(value_input), batch_size)
-
-        output = self.scaled_dot_product_attention(query, key, value)
-        output = output.permute(0, 2, 1, 3).contiguous().view(batch_size, -1, self.d_model)
-        return output
-
+# Self-Attention Layer
 class SelfAttention(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, num_features, num_heads=8):
         super(SelfAttention, self).__init__()
-        self.query = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-        self.key = nn.Conv2d(in_channels, in_channels // 8, kernel_size=1)
-        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.num_heads = num_heads  # Add this line
+        self.query = nn.Linear(num_features, num_features)
+        self.key = nn.Linear(num_features, num_features)
+        self.value = nn.Linear(num_features, num_features)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x):
-        B, C, H, W = x.size()
-        Q = self.query(x).view(B, -1, H * W).permute(0, 2, 1)
-        K = self.key(x).view(B, -1, H * W)
-        V = self.value(x).view(B, -1, H * W)
+    def forward(self, x, pose_embedding):
+        Q = self.query(x + pose_embedding)
+        K = self.key(x + pose_embedding)
+        V = self.value(x + pose_embedding)
 
-        attention = self.softmax(torch.bmm(Q, K))
-        out = torch.bmm(V, attention.permute(0, 2, 1))
-        out = out.view(B, C, H, W)
-        return out
+        QK = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.num_heads)
+        attn_weights = self.softmax(QK)
+
+        output = torch.matmul(attn_weights, V)
+        return output
 
 # Cross-Attention Layer
 class CrossAttention(nn.Module):
@@ -102,7 +78,6 @@ class CrossAttention(nn.Module):
         out = torch.bmm(V, attention.permute(0, 2, 1))
         out = out.view(B, C, H, W)
         return out
-
 
 class PoseEmbedding(nn.Module):
     def __init__(self, pose_dim, embedding_dim):
