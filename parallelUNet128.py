@@ -62,17 +62,11 @@ class UNetBlock(nn.Module):
             elif attention_type == 'cross':
                 self.blocks.append(CrossAttention(out_channels))
 
-<<<<<<< HEAD
     def forward(self, x, pose_embedding=None, garment_pose_embedding=None):  # Modified to take pose_embedding
         for block in self.blocks:
             if isinstance(block, ResBlock):
                 x = block(x, pose_embedding)  # Passing pose_embedding to ResBlock
             elif isinstance(block, SelfAttention) or isinstance(block, CrossAttention):
-=======
-    def forward(self, x, pose_embedding=None, garment_pose_embedding=None):
-        for block in self.blocks:
-            if isinstance(block, SelfAttention) or isinstance(block, CrossAttention):
->>>>>>> 2bde72bb230d3a92d1e8aaf9c69b47153c53dbe8
                 x = block(x, pose_embedding, garment_pose_embedding)
             else:
                 x = block(x)
@@ -130,46 +124,30 @@ class ParallelUNet(nn.Module):
         person_input = torch.cat([Ia, zt], dim=1)
         person_output = self.initial_conv(person_input)
 
-<<<<<<< HEAD
         skip_connections = []  # Store the feature maps for skip connections
 
-=======
->>>>>>> 2bde72bb230d3a92d1e8aaf9c69b47153c53dbe8
         # Existing code for garment-UNet
         garment_output = self.garment_initial_conv(garment_segment)
         for block in self.garment_blocks:  # Early stop at 32x32
             garment_output = block(garment_output)
-<<<<<<< HEAD
             skip_connections.append(garment_output)
 
         # Existing code for person-UNet
         for idx, block in enumerate(self.blocks):
-=======
-
-        # Existing code for person-UNet
-        for block in self.blocks:
->>>>>>> 2bde72bb230d3a92d1e8aaf9c69b47153c53dbe8
             person_output = self.integrate_pose(person_output, human_pose_embedding)
             person_output = block(person_output, pose_embedding=human_pose_embedding,
                                   garment_pose_embedding=garment_pose_embedding)
 
-<<<<<<< HEAD
             # For the up path, add skip connections
             if idx >= 4:
                 person_output = person_output + skip_connections[
                     -(idx - 3)]  # Use negative indexing to access from the end
 
-=======
->>>>>>> 2bde72bb230d3a92d1e8aaf9c69b47153c53dbe8
         person_output = self.final_conv(person_output)  # Modified
         return person_output
 
 # Instantiate the model
 model = ParallelUNet(human_pose_dim=1, garment_pose_dim=1, num_channels_Ia=3, num_channels_zt=3)  # Modified
-<<<<<<< HEAD
-=======
-
->>>>>>> 2bde72bb230d3a92d1e8aaf9c69b47153c53dbe8
 
 
 
