@@ -44,22 +44,26 @@ class ResBlock(nn.Module):
         x += residual
         return x
 
-# UNet Block with FiLM + ResBlock + optional Self-Attention + optional Cross-Attention
+
 class UNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, num_res_blocks, attention_type=None):
+    def __init__(self, in_channels, out_channels, num_res_blocks, attention_types=[]):
         super(UNetBlock, self).__init__()
         self.blocks = nn.ModuleList()
+
         for _ in range(num_res_blocks):
             self.blocks.append(ResBlock(in_channels, out_channels))
-        if attention_type == 'self':
-            self.blocks.append(SelfAttention(out_channels))
-        elif attention_type == 'cross':
-            self.blocks.append(CrossAttention(out_channels))
 
-    def forward(self, x, pose_embedding=None, garment_output=None):
+        # 'attention_types'는 리스트 형태로 전달되어, 여러 attention 타입을 포함할 수 있습니다.
+        for attention_type in attention_types:  # Modified
+            if attention_type == 'self':
+                self.blocks.append(SelfAttention(out_channels))
+            elif attention_type == 'cross':
+                self.blocks.append(CrossAttention(out_channels))
+
+    def forward(self, x, pose_embedding=None, garment_pose_embedding=None):
         for block in self.blocks:
             if isinstance(block, SelfAttention) or isinstance(block, CrossAttention):
-                x = block(x, pose_embedding, garment_output)
+                x = block(x, pose_embedding, garment_pose_embedding)
             else:
                 x = block(x)
         return x
@@ -74,13 +78,13 @@ class ParallelUNet(nn.Module):
         self.garment_pose_embed = PoseEmbedding(garment_pose_dim, embedding_dim)
 
         # Define the UNet blocks based on the given structure
-        self.initial_conv = nn.Conv2d(6, 128, kernel_size=3, padding=1)
+        self.initial_conv = nn.Conv2d(num_channels_Ia + num_channels_zt, 128, kernel_size=3, padding=1)
         self.blocks = nn.ModuleList([
             UNetBlock(128, 128, 3),
             UNetBlock(128, 64, 4),
-            UNetBlock(64, 32, 6, attention_type='self'),
-            UNetBlock(32, 16, 7, attention_type='cross'),
-            UNetBlock(16, 16, 7, attention_type='cross'),
+            UNetBlock(64, 32, 6, attention_types=['self','cross']),
+            UNetBlock(32, 16, 7, attention_types=['self','cross']),
+            UNetBlock(16, 16, 7, attention_types=['self','cross']),
             UNetBlock(16, 32, 6),
             UNetBlock(32, 64, 4),
             UNetBlock(64, 128, 3)
@@ -108,24 +112,31 @@ class ParallelUNet(nn.Module):
         pose_embedding = pose_embedding.view(B, -1, 1, 1).expand(B, -1, H, W)
         return torch.cat([x, pose_embedding], dim=1)
 
-    def forward(self, x, human_pose, garment_pose, garment_segment):
+    def forward(self, Ia, zt, human_pose, garment_pose, garment_segment):
         human_pose_embedding = self.human_pose_embed(human_pose)
         garment_pose_embedding = self.garment_pose_embed(garment_pose)
 
-        x = self.initial_conv(x)
+        # Concatenating Ia and zt
+        person_input = torch.cat([Ia, zt], dim=1)
+        person_output = self.initial_conv(person_input)
+
+        # Existing code for garment-UNet
         garment_output = self.garment_initial_conv(garment_segment)
-        for block in self.garment_blocks:
+        for block in self.garment_blocks:  # Early stop at 32x32
             garment_output = block(garment_output)
+
+        # Existing code for person-UNet
         for block in self.blocks:
-            x = self.integrate_pose(x, human_pose_embedding)
-            x = block(x, pose_embedding=human_pose_embedding, garment_output=garment_output)
+            person_output = self.integrate_pose(person_output, human_pose_embedding)
+            person_output = block(person_output, pose_embedding=human_pose_embedding,
+                                  garment_pose_embedding=garment_pose_embedding)
 
-        x = self.final_layer(x)
-        return x
-
+        person_output = self.final_conv(person_output)  # Modified
+        return person_output
 
 # Instantiate the model
-model = ParallelUNet(human_pose_dim=1, garment_pose_dim=1)
+model = ParallelUNet(human_pose_dim=1, garment_pose_dim=1, num_channels_Ia=3, num_channels_zt=3)  # Modified
+
 
 
 
