@@ -42,20 +42,18 @@ class WarpAndBlend(nn.Module):
 class SelfAttention(nn.Module):
     def __init__(self, num_features, num_heads=8):
         super(SelfAttention, self).__init__()
-        self.num_heads = num_heads  # Add this line
         self.query = nn.Linear(num_features, num_features)
         self.key = nn.Linear(num_features, num_features)
         self.value = nn.Linear(num_features, num_features)
         self.softmax = nn.Softmax(dim=-1)
+        self.num_features = num_features  # Modified
 
     def forward(self, x, pose_embedding):
         Q = self.query(x + pose_embedding)
         K = self.key(x + pose_embedding)
         V = self.value(x + pose_embedding)
-
-        QK = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.num_heads)
+        QK = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.num_features)
         attn_weights = self.softmax(QK)
-
         output = torch.matmul(attn_weights, V)
         return output
 

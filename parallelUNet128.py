@@ -3,6 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from utils import *
 
+def add_gaussian_noise(image, mean=0, std=0.1):
+    noise = torch.randn(image.size()) * std + mean
+    noisy_image = image + noise
+    return torch.clamp(noisy_image, 0, 1)
+
 # Pose Embedding
 class PoseEmbedding(nn.Module):
     def __init__(self, input_dim, embedding_dim):
@@ -23,12 +28,12 @@ class FiLM(nn.Module):
         self.gamma = nn.Parameter(torch.ones(1, num_features, 1, 1))
         self.beta = nn.Parameter(torch.zeros(1, num_features, 1, 1))
 
-    def forward(self, x, pose_embedding):  # Modified to take pose_embedding
-        gamma = self.gamma * pose_embedding  # Modulate gamma using pose_embedding
-        beta = self.beta * pose_embedding  # Modulate beta using pose_embedding
+    def forward(self, x):  # Modified to take pose_embedding
+        gamma = self.gamma   # Modulate gamma using pose_embedding
+        beta = self.beta # Modulate beta using pose_embedding
         return gamma * x + beta  # Return modulated x
 
-# Residual Block with FiLM
+# Existing ResBlock with FiLM
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResBlock, self).__init__()
@@ -37,12 +42,15 @@ class ResBlock(nn.Module):
         self.film = FiLM(out_channels)
         self.activation = nn.ReLU()
 
-    def forward(self, x, pose_embedding=None):  # Modified to take pose_embedding
+    def forward(self, x, pose_embedding=None):  # Add pose_embedding
         residual = x
         x = self.conv1(x)
         x = self.activation(x)
         x = self.conv2(x)
-        x = self.film(x, pose_embedding)  # Passing pose_embedding to FiLM layer
+        if pose_embedding is not None:
+            x = self.film(x + pose_embedding)  # Modulate features using FiLM
+        else:
+            x = self.film(x)
         x += residual
         return x
 
@@ -62,19 +70,19 @@ class UNetBlock(nn.Module):
             elif attention_type == 'cross':
                 self.blocks.append(CrossAttention(out_channels))
 
-    def forward(self, x, pose_embedding=None, garment_pose_embedding=None):  # Modified to take pose_embedding
+    def forward(self, x, garment_features=None, pose_embedding=None):
         for block in self.blocks:
-            if isinstance(block, ResBlock):
-                x = block(x, pose_embedding)  # Passing pose_embedding to ResBlock
-            elif isinstance(block, SelfAttention) or isinstance(block, CrossAttention):
-                x = block(x, pose_embedding, garment_pose_embedding)
+            if isinstance(block, CrossAttention):
+                x = block(x, garment_features)  # Passing garment_features as key-value pairs
+            elif isinstance(block, SelfAttention):
+                x = block(x, pose_embedding)
             else:
                 x = block(x)
         return x
 
 # Main Parallel-UNet Model
 class ParallelUNet(nn.Module):
-    def __init__(self, human_pose_dim, garment_pose_dim, embedding_dim=128):
+    def __init__(self, human_pose_dim, garment_pose_dim,num_channels_Ia,num_channels_zt, embedding_dim=128):
         super(ParallelUNet, self).__init__()
 
         # Embedding layers for human and garment pose
@@ -98,9 +106,9 @@ class ParallelUNet(nn.Module):
         # garment_initial_conv의 입력 차원을 1로 설정합니다.
         self.garment_initial_conv = nn.Sequential(
             nn.Conv2d(1, 128, 3, padding=1),  # 입력 차원이 1입니다.
-            nn.Swish(),
+            nn.SiLU(),
             nn.Conv2d(128, 128, 3, padding=1),
-            nn.Swish()
+            nn.SiLU()
         )
         self.garment_blocks = nn.ModuleList([
             UNetBlock(128, 128, 3),
@@ -120,34 +128,38 @@ class ParallelUNet(nn.Module):
         human_pose_embedding = self.human_pose_embed(human_pose)
         garment_pose_embedding = self.garment_pose_embed(garment_pose)
 
+        Ia = add_gaussian_noise(Ia)
+
         # Concatenating Ia and zt
         person_input = torch.cat([Ia, zt], dim=1)
-        person_output = self.initial_conv(person_input)
-
-        skip_connections = []  # Store the feature maps for skip connections
-
-        # Existing code for garment-UNet
+        garment_features_list = []  # New list to store features for cross-attention
         garment_output = self.garment_initial_conv(garment_segment)
+
         for block in self.garment_blocks:  # Early stop at 32x32
             garment_output = block(garment_output)
-            skip_connections.append(garment_output)
+            garment_features_list.append(garment_output)  # Store features
 
         # Existing code for person-UNet
         for idx, block in enumerate(self.blocks):
-            person_output = self.integrate_pose(person_output, human_pose_embedding)
+            person_output = self.integrate_pose(person_input, human_pose_embedding)
+            person_output = self.integrate_pose((person_output, garment_pose_embedding))
             person_output = block(person_output, pose_embedding=human_pose_embedding,
                                   garment_pose_embedding=garment_pose_embedding)
 
-            # For the up path, add skip connections
-            if idx >= 4:
-                person_output = person_output + skip_connections[
-                    -(idx - 3)]  # Use negative indexing to access from the end
+            # Now we start passing garment_features to the person UNet blocks
+            for idx, block in enumerate(self.blocks):
+                if idx >= 2 and idx <= 5:  # Indices where you want cross attention to occur
+                    person_output = block(person_output, garment_features=garment_features_list[
+                        idx - 2])  # garment_features_list comes from the forward pass of garment blocks
+                else:
+                    person_output = block(person_output)
 
         person_output = self.final_conv(person_output)  # Modified
         return person_output
 
 # Instantiate the model
-model = ParallelUNet(human_pose_dim=1, garment_pose_dim=1, num_channels_Ia=3, num_channels_zt=3)  # Modified
+model = ParallelUNet(human_pose_dim=136, garment_pose_dim=16, num_channels_Ia=3, num_channels_zt=3)
+
 
 
 
