@@ -3,37 +3,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 from utils import *
 
-def add_gaussian_noise(image, mean=0, std=0.1):
-    noise = torch.randn(image.size()) * std + mean
-    noisy_image = image + noise
-    return torch.clamp(noisy_image, 0, 1)
-
-# Pose Embedding
 class PoseEmbedding(nn.Module):
     def __init__(self, input_dim, embedding_dim):
         super(PoseEmbedding, self).__init__()
         self.fc = nn.Linear(input_dim, embedding_dim)
         self.clip_attention = nn.Softmax(dim=-1)  # Assuming 1D attention pooling
 
-    def forward(self, x):
-        x = self.fc(x)
-        attention_weights = self.clip_attention(x)
-        x = torch.sum(x * attention_weights, dim=1, keepdim=True)
-        return x
+    def forward(self, x, pose_embedding=None):  # Modified to take pose_embedding
+        if pose_embedding is None:
+            return x  # or any other default behavior when pose_embedding is None
+        gamma = self.gamma * pose_embedding  # Modulate gamma using pose_embedding
+        beta = self.beta * pose_embedding  # Modulate beta using pose_embedding
+        return gamma * x + beta  # Return modulated x
 
-# Feature-wise Linear Modulation (FiLM) Layer
 class FiLM(nn.Module):
     def __init__(self, num_features):
         super(FiLM, self).__init__()
         self.gamma = nn.Parameter(torch.ones(1, num_features, 1, 1))
         self.beta = nn.Parameter(torch.zeros(1, num_features, 1, 1))
 
-    def forward(self, x):  # Modified to take pose_embedding
-        gamma = self.gamma   # Modulate gamma using pose_embedding
-        beta = self.beta # Modulate beta using pose_embedding
+    def forward(self, x, pose_embedding=None):  # Modified to take pose_embedding
+        if pose_embedding is None:
+            return x  # or any other default behavior when pose_embedding is None
+        gamma = self.gamma * pose_embedding  # Modulate gamma using pose_embedding
+        beta = self.beta * pose_embedding  # Modulate beta using pose_embedding
         return gamma * x + beta  # Return modulated x
 
-# Existing ResBlock with FiLM
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResBlock, self).__init__()
@@ -42,15 +37,22 @@ class ResBlock(nn.Module):
         self.film = FiLM(out_channels)
         self.activation = nn.ReLU()
 
-    def forward(self, x, pose_embedding=None):  # Add pose_embedding
-        residual = x
+        # Add a projection layer if in_channels != out_channels
+        if in_channels != out_channels:
+            self.projection = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
+        else:
+            self.projection = None
+
+    def forward(self, x, pose_embedding=None):
+        if self.projection:
+            residual = self.projection(x)
+        else:
+            residual = x
+
         x = self.conv1(x)
         x = self.activation(x)
         x = self.conv2(x)
-        if pose_embedding is not None:
-            x = self.film(x + pose_embedding)  # Modulate features using FiLM
-        else:
-            x = self.film(x)
+        x = self.film(x, pose_embedding)
         x += residual
         return x
 
@@ -105,7 +107,7 @@ class ParallelUNet(nn.Module):
 
         # garment_initial_conv의 입력 차원을 1로 설정합니다.
         self.garment_initial_conv = nn.Sequential(
-            nn.Conv2d(1, 128, 3, padding=1),  # 입력 차원이 1입니다.
+            nn.Conv2d(3, 128, 3, padding=1),  # Change the input channels to 3
             nn.SiLU(),
             nn.Conv2d(128, 128, 3, padding=1),
             nn.SiLU()
@@ -128,8 +130,6 @@ class ParallelUNet(nn.Module):
         human_pose_embedding = self.human_pose_embed(human_pose)
         garment_pose_embedding = self.garment_pose_embed(garment_pose)
 
-        Ia = add_gaussian_noise(Ia)
-
         # Concatenating Ia and zt
         person_input = torch.cat([Ia, zt], dim=1)
         garment_features_list = []  # New list to store features for cross-attention
@@ -139,13 +139,12 @@ class ParallelUNet(nn.Module):
             garment_output = block(garment_output)
             garment_features_list.append(garment_output)  # Store features
 
-        # Existing code for person-UNet
         for idx, block in enumerate(self.blocks):
-            person_output = self.integrate_pose(person_input, human_pose_embedding)
-            person_output = self.integrate_pose((person_output, garment_pose_embedding))
-            person_output = block(person_output, pose_embedding=human_pose_embedding,
+            person_input = self.integrate_pose(person_input, human_pose_embedding)
+            person_input = self.integrate_pose(person_input, garment_pose_embedding)
+            person_output = block(person_input, pose_embedding=human_pose_embedding,
                                   garment_pose_embedding=garment_pose_embedding)
-
+            person_input = person_output  # Update person_input for the next iteration
             # Now we start passing garment_features to the person UNet blocks
             for idx, block in enumerate(self.blocks):
                 if idx >= 2 and idx <= 5:  # Indices where you want cross attention to occur
