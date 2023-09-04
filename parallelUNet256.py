@@ -41,27 +41,30 @@ class AttentionLayer(nn.Module):
         out = attention_weights @ v
         return out
 
-class ScaledDotProductAttention(nn.Module):
-    def __init__(self, d_k, n_heads=8):
-        super(ScaledDotProductAttention, self).__init__()
-        self.d_k = d_k
-        self.n_heads = n_heads
-        self.query = nn.Linear(d_k, d_k * n_heads)
-        self.key = nn.Linear(d_k, d_k * n_heads)
-        self.value = nn.Linear(d_k, d_k * n_heads)
+# Cross-Attention Layer
+class CrossAttentionLayer(nn.Module):
+    def __init__(self, d, num_heads=8):
+        super(CrossAttentionLayer, self).__init__()
+        self.num_heads = num_heads
+        self.d = d // num_heads
+        self.query = nn.Linear(d, d)
+        self.key = nn.Linear(d, d)
+        self.value = nn.Linear(d, d)
+        self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, Q, K, V):
-        # Multi-head attention
-        Q = self.query(Q).view(Q.size(0), -1, self.n_heads, self.d_k).transpose(1, 2)
-        K = self.key(K).view(K.size(0), -1, self.n_heads, self.d_k).transpose(1, 2)
-        V = self.value(V).view(V.size(0), -1, self.n_heads, self.d_k).transpose(1, 2)
+    def forward(self, zt, ic):
+        # Multi-head attention preparation
+        Q = self.query(zt).view(zt.size(0), -1, self.num_heads, self.d).permute(0, 2, 1, 3)
+        K = self.key(ic).view(ic.size(0), -1, self.num_heads, self.d).permute(0, 2, 1, 3)
+        V = self.value(ic).view(ic.size(0), -1, self.num_heads, self.d).permute(0, 2, 1, 3)
 
         # Scaled dot-product attention
-        attn_weights = torch.matmul(Q, K.transpose(-2, -1)) / (self.d_k ** 0.5)
-        attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1)
-        output = torch.matmul(attn_weights, V)
+        attention_map = torch.matmul(Q, K.permute(0, 1, 3, 2)) / (self.d ** 0.5)
+        attention_weights = self.softmax(attention_map)
+        out = torch.matmul(attention_weights, V).permute(0, 2, 1, 3).contiguous().view(zt.size(0), -1,
+                                                                                       self.d * self.num_heads)
 
-        return output.contiguous().view(output.size(0), -1, self.n_heads * self.d_k)
+        return out
 
 # Read JSON file and create initial pose embeddings
 with open('human_pose.json', 'r') as f:
@@ -89,17 +92,17 @@ class FiLM(nn.Module):
         return self.gamma * x + self.beta
 
 class ResBlock(nn.Module):
-    def __init__(self, in_nc, out_nc, scale='down', norm_layer=nn.BatchNorm2d):
+    def __init__(self, in_nc, out_nc, scale='down', num_groups=32):
         super(ResBlock, self).__init__()
-        use_bias = norm_layer == nn.InstanceNorm2d
+        use_bias = True  # You can set this based on your needs
         assert scale in ['up', 'down', 'same'], "ResBlock scale must be in 'up' 'down' 'same'"
 
         if scale == 'same':
-            self.scale = nn.Conv2d(in_nc, out_nc, kernel_size=1, bias=True)
+            self.scale = nn.Conv2d(in_nc, out_nc, kernel_size=1, bias=use_bias)
         if scale == 'up':
             self.scale = nn.Sequential(
-                nn.Upsample(scale_factor=2, mode='bilinear'),
-                nn.Conv2d(in_nc, out_nc, kernel_size=1, bias=True)
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                nn.Conv2d(in_nc, out_nc, kernel_size=1, bias=use_bias)
             )
         if scale == 'down':
             self.scale = nn.Conv2d(in_nc, out_nc, kernel_size=3, stride=2, padding=1, bias=use_bias)
@@ -107,12 +110,12 @@ class ResBlock(nn.Module):
         self.film = FiLM(out_nc)
 
         self.block = nn.Sequential(
+            nn.GroupNorm(num_groups, out_nc),  # GroupNorm
+            nn.SiLU(inplace=True),  # Swish (SiLU)
             nn.Conv2d(out_nc, out_nc, kernel_size=3, stride=1, padding=1, bias=use_bias),
-            norm_layer(out_nc),
-            nn.SiLU(inplace=True),
-            self.film,  # FiLM layer inserted here
-            nn.Conv2d(out_nc, out_nc, kernel_size=3, stride=1, padding=1, bias=use_bias),
-            norm_layer(out_nc)
+            nn.GroupNorm(num_groups, out_nc),  # GroupNorm
+            nn.SiLU(inplace=True),  # Swish (SiLU)
+            nn.Conv2d(out_nc, out_nc, kernel_size=3, stride=1, padding=1, bias=use_bias)
         )
         self.relu = nn.ReLU(inplace=True)
 
@@ -142,6 +145,12 @@ class PersonUnet(nn.Module):
         self.enc_conv4 = nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1)
         self.enc4 = nn.ModuleList([ResBlock(1024, 1024, scale='same') for _ in range(7)])
 
+        # Cross Attention Layers
+        self.cross_attn1 = CrossAttentionLayer(512)
+        self.cross_attn2 = CrossAttentionLayer(1024)
+        self.cross_attn3 = CrossAttentionLayer(1024)
+        self.cross_attn4 = CrossAttentionLayer(512)
+
         self.attn1 = AttentionLayer(128, pose_dim)
         self.attn2 = AttentionLayer(256, pose_dim)
         self.attn3 = AttentionLayer(512, pose_dim)
@@ -163,8 +172,10 @@ class PersonUnet(nn.Module):
         # Final conv layer
         self.final_conv = nn.Conv2d(128, out_channels, kernel_size=3, padding=1)
 
-    def forward(self, x, person_pose_embedding, garment_pose_embedding):
+    def forward(self, Ia, zt, person_pose_embedding, garment_pose_embedding,
+                enc3_garment, enc4_garment, dec4_garment, dec3_garment):
         # Combine person and garment pose embeddings
+        x = torch.cat([Ia, zt], dim=1)
         pose_embedding = person_pose_embedding + garment_pose_embedding
 
         # Encoder with Attention
@@ -182,20 +193,24 @@ class PersonUnet(nn.Module):
         for block in self.enc3:
             x = block(x)
         film3_params = self.attn3(x, pose_embedding)
+        x = self.cross_attn1(x, enc3_garment)  # Cross-Attention
 
         x = self.enc_conv4(x)
         for block in self.enc4:
             x = block(x)
         film4_params = self.attn4(x, pose_embedding)
+        x = self.cross_attn2(x, enc4_garment)  # Cross-Attention
 
         # Decoder with skip connections and FiLM modulation
         x = self.dec_conv4(torch.cat([x, film4_params], dim=1))
         for block in self.dec4:
             x = block(x, film4_params)
+        x = self.cross_attn3(x, dec4_garment)  # Cross-Attention
 
         x = self.dec_conv3(torch.cat([x, film3_params], dim=1))
         for block in self.dec3:
             x = block(x, film3_params)
+        x = self.cross_attn4(x, dec3_garment) # Cross-Attention
 
         x = self.dec_conv2(torch.cat([x, film2_params], dim=1))
         for block in self.dec2:
@@ -248,8 +263,9 @@ class GarmentUnet(nn.Module):
         # Final conv layer
         self.final_conv = nn.Conv2d(128, out_channels, kernel_size=3, padding=1)
 
-    def forward(self, x, person_pose_embedding, garment_pose_embedding):
+    def forward(self, Ic, person_pose_embedding, garment_pose_embedding):
         # Combine person and garment pose embeddings
+        x = Ic
         pose_embedding = person_pose_embedding + garment_pose_embedding
 
         # Encoder with Attention
@@ -266,21 +282,25 @@ class GarmentUnet(nn.Module):
         x = self.enc_conv3(x)
         for block in self.enc3:
             x = block(x)
+        enc3_out = x
         film3_params = self.attn3(x, pose_embedding)
 
         x = self.enc_conv4(x)
         for block in self.enc4:
             x = block(x)
+        enc4_out = x
         film4_params = self.attn4(x, pose_embedding)
 
         # Decoder with skip connections and FiLM modulation
         x = self.dec_conv4(torch.cat([x, film4_params], dim=1))
         for block in self.dec4:
             x = block(x, film4_params)
+        dec4_out = x
 
         x = self.dec_conv3(torch.cat([x, film3_params], dim=1))
         for block in self.dec3:
             x = block(x, film3_params)
+        dec3_out = x
 
         x = self.dec_conv2(torch.cat([x, film2_params], dim=1))
         for block in self.dec2:
@@ -293,7 +313,7 @@ class GarmentUnet(nn.Module):
         # Final Layer
         final = self.final_conv(x)
 
-        return final
+        return final, enc3_out, enc4_out, dec4_out, dec3_out
 
 
 class UnifiedUNet(nn.Module):
@@ -318,8 +338,13 @@ class UnifiedUNet(nn.Module):
         positional_encoding = diffusion_timestep + noise_level
         modulated_embedding = pooled_embedding + positional_encoding
 
-        out_person = self.person_unet(x_person, modulated_embedding, modulated_embedding)
-        out_garment = self.garment_unet(x_garment, modulated_embedding, modulated_embedding)
+        # Forward pass through Garment U-Net to get intermediate outputs
+        out_garment, enc3_garment, enc4_garment, dec4_garment, dec3_garment = self.garment_unet(
+            x_garment, modulated_embedding, modulated_embedding)
+
+        # Forward pass through Person U-Net with shared cross-attention layers
+        out_person = self.person_unet(x_person, modulated_embedding, modulated_embedding,
+                                      enc3_garment, enc4_garment, dec4_garment, dec3_garment)
 
         # Combine 'out_person' and 'out_garment' using your blending logic here
         combined_out = out_person + out_garment
