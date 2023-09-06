@@ -66,22 +66,6 @@ class CrossAttentionLayer(nn.Module):
 
         return out
 
-# Read JSON file and create initial pose embeddings
-with open('human_pose.json', 'r') as f:
-    human_data = json.load(f)
-human_pose = torch.Tensor(human_data['landmarks'])
-
-with open('garment_pose.json', 'r') as f:
-    garment_data = json.load(f)
-garment_pose = torch.Tensor(garment_data['landmarks'])
-
-# Convert raw pose data to embeddings
-human_pose_embedding_layer = PoseEmbedding(human_pose.shape[0], 512)
-garment_pose_embedding_layer = PoseEmbedding(garment_pose.shape[0], 512)
-
-human_pose_embedding = human_pose_embedding_layer(human_pose)
-garment_pose_embedding = garment_pose_embedding_layer(garment_pose)
-
 class FiLM(nn.Module):
     def __init__(self, num_features):
         super(FiLM, self).__init__()
@@ -133,41 +117,41 @@ class PersonUnet(nn.Module):
         super(PersonUnet, self).__init__()
 
         # Encoder
-        self.enc_conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
-        self.enc1 = nn.ModuleList([ResBlock(128, 128, scale='same') for _ in range(3)])
+        self.enc_conv1 = nn.Conv2d(in_channels, 128*2, kernel_size=3, padding=1)
+        self.enc1 = nn.ModuleList([ResBlock(128*2, 128*2, scale='same') for _ in range(3)])
 
-        self.enc_conv2 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
-        self.enc2 = nn.ModuleList([ResBlock(256, 256, scale='same') for _ in range(4)])
+        self.enc_conv2 = nn.Conv2d(128*2, 256*2, kernel_size=3, stride=2, padding=1)
+        self.enc2 = nn.ModuleList([ResBlock(256*2, 256*2, scale='same') for _ in range(4)])
 
-        self.enc_conv3 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1)
-        self.enc3 = nn.ModuleList([ResBlock(512, 512, scale='same') for _ in range(6)])
+        self.enc_conv3 = nn.Conv2d(256*2, 512*2, kernel_size=3, stride=2, padding=1)
+        self.enc3 = nn.ModuleList([ResBlock(512*2, 512*2, scale='same') for _ in range(6)])
 
-        self.enc_conv4 = nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1)
-        self.enc4 = nn.ModuleList([ResBlock(1024, 1024, scale='same') for _ in range(7)])
+        self.enc_conv4 = nn.Conv2d(512*2, 1024*2, kernel_size=3, stride=2, padding=1)
+        self.enc4 = nn.ModuleList([ResBlock(1024*2, 1024*2, scale='same') for _ in range(7)])
 
         # Cross Attention Layers
-        self.cross_attn1 = CrossAttentionLayer(512)
-        self.cross_attn2 = CrossAttentionLayer(1024)
-        self.cross_attn3 = CrossAttentionLayer(1024)
-        self.cross_attn4 = CrossAttentionLayer(512)
+        self.cross_attn1 = CrossAttentionLayer(512*2)
+        self.cross_attn2 = CrossAttentionLayer(1024*2)
+        self.cross_attn3 = CrossAttentionLayer(1024*2)
+        self.cross_attn4 = CrossAttentionLayer(512*2)
 
-        self.attn1 = AttentionLayer(128, pose_dim)
-        self.attn2 = AttentionLayer(256, pose_dim)
-        self.attn3 = AttentionLayer(512, pose_dim)
-        self.attn4 = AttentionLayer(1024, pose_dim)
+        self.attn1 = AttentionLayer(128*2, pose_dim)
+        self.attn2 = AttentionLayer(256*2, pose_dim)
+        self.attn3 = AttentionLayer(512*2, pose_dim)
+        self.attn4 = AttentionLayer(1024*2, pose_dim)
 
         # Decoder
-        self.dec_conv4 = nn.ConvTranspose2d(3072, 1024, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec4 = nn.ModuleList([ResBlock(1024, 1024, scale='same') for _ in range(7)])
+        self.dec_conv4 = nn.ConvTranspose2d(3072*2, 1024*2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec4 = nn.ModuleList([ResBlock(1024*2, 1024*2, scale='same') for _ in range(7)])
 
-        self.dec_conv3 = nn.ConvTranspose2d(1536, 512, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec3 = nn.ModuleList([ResBlock(512, 512, scale='same') for _ in range(6)])
+        self.dec_conv3 = nn.ConvTranspose2d(1536*2, 512*2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec3 = nn.ModuleList([ResBlock(512*2, 512*2, scale='same') for _ in range(6)])
 
-        self.dec_conv2 = nn.ConvTranspose2d(768, 256, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec2 = nn.ModuleList([ResBlock(256, 256, scale='same') for _ in range(4)])
+        self.dec_conv2 = nn.ConvTranspose2d(768*2, 256*2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec2 = nn.ModuleList([ResBlock(256*2, 256*2, scale='same') for _ in range(4)])
 
-        self.dec_conv1 = nn.ConvTranspose2d(384, 128, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec1 = nn.ModuleList([ResBlock(128, 128, scale='same') for _ in range(3)])
+        self.dec_conv1 = nn.ConvTranspose2d(384*2, 128*2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec1 = nn.ModuleList([ResBlock(128*2, 128*2, scale='same') for _ in range(3)])
 
         # Final conv layer
         self.final_conv = nn.Conv2d(128, out_channels, kernel_size=3, padding=1)
@@ -230,35 +214,41 @@ class GarmentUnet(nn.Module):
         super(GarmentUnet, self).__init__()
 
         # Encoder
-        self.enc_conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
-        self.enc1 = nn.ModuleList([ResBlock(128, 128, scale='same') for _ in range(3)])
+        self.enc_conv1 = nn.Conv2d(in_channels, 128 * 2, kernel_size=3, padding=1)
+        self.enc1 = nn.ModuleList([ResBlock(128 * 2, 128 * 2, scale='same') for _ in range(3)])
 
-        self.enc_conv2 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
-        self.enc2 = nn.ModuleList([ResBlock(256, 256, scale='same') for _ in range(4)])
+        self.enc_conv2 = nn.Conv2d(128 * 2, 256 * 2, kernel_size=3, stride=2, padding=1)
+        self.enc2 = nn.ModuleList([ResBlock(256 * 2, 256 * 2, scale='same') for _ in range(4)])
 
-        self.enc_conv3 = nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1)
-        self.enc3 = nn.ModuleList([ResBlock(512, 512, scale='same') for _ in range(6)])
+        self.enc_conv3 = nn.Conv2d(256 * 2, 512 * 2, kernel_size=3, stride=2, padding=1)
+        self.enc3 = nn.ModuleList([ResBlock(512 * 2, 512 * 2, scale='same') for _ in range(6)])
 
-        self.enc_conv4 = nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1)
-        self.enc4 = nn.ModuleList([ResBlock(1024, 1024, scale='same') for _ in range(7)])
+        self.enc_conv4 = nn.Conv2d(512 * 2, 1024 * 2, kernel_size=3, stride=2, padding=1)
+        self.enc4 = nn.ModuleList([ResBlock(1024 * 2, 1024 * 2, scale='same') for _ in range(7)])
 
-        self.attn1 = AttentionLayer(128, pose_dim)
-        self.attn2 = AttentionLayer(256, pose_dim)
-        self.attn3 = AttentionLayer(512, pose_dim)
-        self.attn4 = AttentionLayer(1024, pose_dim)
+        # Cross Attention Layers
+        self.cross_attn1 = CrossAttentionLayer(512 * 2)
+        self.cross_attn2 = CrossAttentionLayer(1024 * 2)
+        self.cross_attn3 = CrossAttentionLayer(1024 * 2)
+        self.cross_attn4 = CrossAttentionLayer(512 * 2)
+
+        self.attn1 = AttentionLayer(128 * 2, pose_dim)
+        self.attn2 = AttentionLayer(256 * 2, pose_dim)
+        self.attn3 = AttentionLayer(512 * 2, pose_dim)
+        self.attn4 = AttentionLayer(1024 * 2, pose_dim)
 
         # Decoder
-        self.dec_conv4 = nn.ConvTranspose2d(3072, 1024, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec4 = nn.ModuleList([ResBlock(1024, 1024, scale='same') for _ in range(7)])
+        self.dec_conv4 = nn.ConvTranspose2d(3072 * 2, 1024 * 2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec4 = nn.ModuleList([ResBlock(1024 * 2, 1024 * 2, scale='same') for _ in range(7)])
 
-        self.dec_conv3 = nn.ConvTranspose2d(1536, 512, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec3 = nn.ModuleList([ResBlock(512, 512, scale='same') for _ in range(6)])
+        self.dec_conv3 = nn.ConvTranspose2d(1536 * 2, 512 * 2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec3 = nn.ModuleList([ResBlock(512 * 2, 512 * 2, scale='same') for _ in range(6)])
 
-        self.dec_conv2 = nn.ConvTranspose2d(768, 256, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec2 = nn.ModuleList([ResBlock(256, 256, scale='same') for _ in range(4)])
+        self.dec_conv2 = nn.ConvTranspose2d(768 * 2, 256 * 2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec2 = nn.ModuleList([ResBlock(256 * 2, 256 * 2, scale='same') for _ in range(4)])
 
-        self.dec_conv1 = nn.ConvTranspose2d(384, 128, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.dec1 = nn.ModuleList([ResBlock(128, 128, scale='same') for _ in range(3)])
+        self.dec_conv1 = nn.ConvTranspose2d(384 * 2, 128 * 2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.dec1 = nn.ModuleList([ResBlock(128 * 2, 128 * 2, scale='same') for _ in range(3)])
 
         # Final conv layer
         self.final_conv = nn.Conv2d(128, out_channels, kernel_size=3, padding=1)
@@ -346,7 +336,8 @@ class UnifiedUNet(nn.Module):
         out_person = self.person_unet(x_person, modulated_embedding, modulated_embedding,
                                       enc3_garment, enc4_garment, dec4_garment, dec3_garment)
 
-        # Combine 'out_person' and 'out_garment' using your blending logic here
-        combined_out = out_person + out_garment
 
-        return combined_out
+        return out_person
+
+model = UnifiedUNet()
+print(model)
