@@ -160,30 +160,38 @@ class PersonUnet(nn.Module):
                 enc3_garment, enc4_garment, dec4_garment, dec3_garment):
         # Combine person and garment pose embeddings
         x = torch.cat([Ia, zt], dim=1)
-        pose_embedding = person_pose_embedding + garment_pose_embedding
+        # Combine the two embeddings
+        combined_pose_embedding = torch.cat([person_pose_embedding, garment_pose_embedding], dim=1)
+
 
         # Encoder with Attention
-        x = self.enc_conv1(x)
+        x = self.enc_conv1(Ic)
         for block in self.enc1:
             x = block(x)
-        film1_params = self.attn1(x, pose_embedding)
+        enc1_out = x
+        film1_params = self.attn1(x, combined_pose_embedding)
 
         x = self.enc_conv2(x)
         for block in self.enc2:
             x = block(x)
-        film2_params = self.attn2(x, pose_embedding)
+        enc2_out = x
+        film2_params = self.attn2(x, combined_pose_embedding)
 
         x = self.enc_conv3(x)
         for block in self.enc3:
             x = block(x)
-        film3_params = self.attn3(x, pose_embedding)
+        enc3_out = x
+        film3_params = self.attn3(x, combined_pose_embedding)
         x = self.cross_attn1(x, enc3_garment)  # Cross-Attention
+
 
         x = self.enc_conv4(x)
         for block in self.enc4:
             x = block(x)
-        film4_params = self.attn4(x, pose_embedding)
+        enc4_out = x
+        film4_params = self.attn4(x, combined_pose_embedding)
         x = self.cross_attn2(x, enc4_garment)  # Cross-Attention
+        
 
         # Decoder with skip connections and FiLM modulation
         x = self.dec_conv4(torch.cat([x, film4_params], dim=1))
@@ -248,49 +256,51 @@ class GarmentUnet(nn.Module):
         self.final_conv = nn.Conv2d(128, out_channels, kernel_size=3, padding=1)
 
     def forward(self, Ic, person_pose_embedding, garment_pose_embedding):
-        # Combine person and garment pose embeddings
-        x = Ic
-        pose_embedding = person_pose_embedding + garment_pose_embedding
+
+        # Combine the two embeddings
+        combined_pose_embedding = torch.cat([person_pose_embedding, garment_pose_embedding], dim=1)
 
         # Encoder with Attention
-        x = self.enc_conv1(x)
+        x = self.enc_conv1(Ic)
         for block in self.enc1:
             x = block(x)
-        film1_params = self.attn1(x, pose_embedding)
+        enc1_out = x
+        film1_params = self.attn1(x, combined_pose_embedding)
 
         x = self.enc_conv2(x)
         for block in self.enc2:
             x = block(x)
-        film2_params = self.attn2(x, pose_embedding)
+        enc2_out = x
+        film2_params = self.attn2(x, combined_pose_embedding)
 
         x = self.enc_conv3(x)
         for block in self.enc3:
             x = block(x)
         enc3_out = x
-        film3_params = self.attn3(x, pose_embedding)
+        film3_params = self.attn3(x, combined_pose_embedding)
 
         x = self.enc_conv4(x)
         for block in self.enc4:
             x = block(x)
         enc4_out = x
-        film4_params = self.attn4(x, pose_embedding)
+        film4_params = self.attn4(x, combined_pose_embedding)
 
         # Decoder with skip connections and FiLM modulation
-        x = self.dec_conv4(torch.cat([x, film4_params], dim=1))
+        x = self.dec_conv4(torch.cat([x, enc4_out, film4_params], dim=1))
         for block in self.dec4:
             x = block(x, film4_params)
         dec4_out = x
 
-        x = self.dec_conv3(torch.cat([x, film3_params], dim=1))
+        x = self.dec_conv3(torch.cat([x, enc3_out, film3_params], dim=1))
         for block in self.dec3:
             x = block(x, film3_params)
         dec3_out = x
 
-        x = self.dec_conv2(torch.cat([x, film2_params], dim=1))
+        x = self.dec_conv2(torch.cat([x, enc2_out, film2_params], dim=1))
         for block in self.dec2:
             x = block(x, film2_params)
 
-        x = self.dec_conv1(torch.cat([x, film1_params], dim=1))
+        x = self.dec_conv1(torch.cat([x, enc1_out, film1_params], dim=1))
         for block in self.dec1:
             x = block(x, film1_params)
 
@@ -306,13 +316,18 @@ class UnifiedUNet(nn.Module):
 
         self.person_unet = PersonUnet(in_channels_person, out_channels, pose_dim, norm_layer)
         self.garment_unet = GarmentUnet(in_channels_garment, out_channels, pose_dim, norm_layer)
+        self.person_pose_embedding_layer = PoseEmbedding(pose_dim, pose_dim)
+        self.garment_pose_embedding_layer = PoseEmbedding(pose_dim, pose_dim)
+
 
         # CLIP-style 1D attention pooling
         self.clip_pooling = CLIPAttentionPooling(pose_dim)
 
-    def forward(self, x_person, x_garment, person_pose_embedding, garment_pose_embedding, diffusion_timestep,
+    def forward(self, Ia, Zt, Ic, Jg, Jp, diffusion_timestep,
                 noise_level):
         # Combine person and garment pose embeddings
+        person_pose_embedding = self.person_pose_embedding_layer(Jp)
+        garment_pose_embedding = self.garment_pose_embedding_layer(Jg)
         pose_embedding = person_pose_embedding + garment_pose_embedding
 
         # CLIP-style 1D attention pooling
@@ -324,17 +339,15 @@ class UnifiedUNet(nn.Module):
 
         # Forward pass through Garment U-Net to get intermediate outputs
         out_garment, enc3_garment, enc4_garment, dec4_garment, dec3_garment = self.garment_unet(
-            x_garment, modulated_embedding, modulated_embedding)
+            Ic, person_pose_embedding, garment_pose_embedding)
 
         # Forward pass through Person U-Net with shared cross-attention layers
-        out_person = self.person_unet(x_person, modulated_embedding, modulated_embedding,
-                                      enc3_garment, enc4_garment, dec4_garment, dec3_garment)
+        out_person = self.person_unet(Ia, Zt, person_pose_embedding, garment_pose_embedding,
+                enc3_garment, enc4_garment, dec4_garment, dec3_garment)
 
         return out_person
 
 model = UnifiedUNet()
-print(model)
-
 
 
 
