@@ -1,87 +1,150 @@
+import torch
 import torch.optim as optim
-from utils import *
-from dataloader import VirtualTryOnDataset
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torchvision import transforms
-import os
-from parallelUNet128 import ParallelUNet
+from parallelUNet import ParallelUNet  # Assuming you have this class defined somewhere
+from Customdataloader import CustomDataset  # Uncomment if CustomDataset is in a separate file
+from tqdm import tqdm
 
-# Image transformations (resize and convert to tensor)
-image_transform = transforms.Compose([
-    transforms.Resize((256, 256)),  # Resizing to 256x256 for now
-    transforms.ToTensor()
+torch.cuda.empty_cache()
+# Check if CUDA is available
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
+# Transformations
+transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
-unzip_dir = 'input_data_final'
+# Initialize dataset and dataloader
+json_file = "Data/Training/winfo_train_updated.json"
+dataset = CustomDataset(json_file, transform=transform)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-# Initialize the dataset and dataloader
-ia_dir = os.path.join(unzip_dir, "Ia")
-ic_dir = os.path.join(unzip_dir, "Ic")
-jp_dir = os.path.join(unzip_dir, "jp")
-jg_dir = os.path.join(unzip_dir, "jg")
+# Initialize model and optimizer
+IMG_CHANNEL = 3
 
-dataset = VirtualTryOnDataset(ia_dir, ic_dir, jp_dir, jg_dir, transform=image_transform)
-dataloader = DataLoader(dataset, batch_size=8, shuffle=True)  # Using a batch size of 8
+EMB_DIM =51
 
-# Display the length of the dataset and a sample batch shape
-len(dataset), next(iter(dataloader))[0].shape  # Checking the shape of the first batch of Ia images
+parallel_config = {
+    'garment_unet': {
+        'dstack': {
+            'blocks': [
+                {
+                    'channels': 128,
+                    'repeat': 3
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
+                    'channels': 1024,
+                    'repeat': 7
+                }]
+        },
+        'ustack': {
+            'blocks': [
+                {
+                    'channels': 1024,
+                    'repeat': 7
+                },
+                {
+                    'channels': 512,
+                    'repeat': 6
+                }]
+        }
+    },
+    'person_unet': {
+        'dstack': {
+            'blocks': [
+                {
+                    'channels': 128,
+                    'repeat': 3
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
 
-# Constants for the model
-num_channels_Ia = 3  # RGB images
-num_channels_zt = 3  # Placeholder, not used in the example
-human_pose_dim = 136  # 17 keypoints x 2 (x, y)
-garment_pose_dim = 16  # 8 keypoints x 2 (x, y)
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 1024,
+                    'repeat': 7
+                }]
+        },
+        'ustack': {
+            'blocks': [
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 1024,
+                    'repeat': 7
+                },
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'channels': 128,
+                    'repeat': 3
+                }]
+        }
+    }
+}
 
-# Initialize the model
-model = ParallelUNet(human_pose_dim, garment_pose_dim, num_channels_Ia=num_channels_Ia, num_channels_zt=num_channels_zt)
-
-# Loss function and optimizer
-criterion = nn.MSELoss()
+model = ParallelUNet(EMB_DIM, parallel_config)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
+criterion = torch.nn.MSELoss()  # Mean Squared Error Loss
 
-# Number of epochs
-num_epochs = 10
-
-# Check if GPU is available and move the model to GPU if possible
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = model.to(device)
-
-# Initialize variables to store training metrics
-train_loss_history = []
+# Move the model to the GPU
+model.to(device)
 
 # Training loop
-for epoch in range(num_epochs):
+for epoch in range(10):  # 10 epochs
     epoch_loss = 0.0
+    num_batches = 0
 
-    for i, (ia_images, jp_keypoints, ic_images, jg_keypoints) in enumerate(dataloader):
-        # Move data to device (GPU if available, else CPU)
-        ia_images, ic_images = ia_images.to(device), ic_images.to(device)
-        jp_keypoints, jg_keypoints = torch.tensor(jp_keypoints).float().to(device), torch.tensor(
-            jg_keypoints).float().to(device)
+    # Wrap your dataloader with tqdm for a progress bar
+    for combined_img, person_pose, garment_pose, ic_img, org_img in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
+        # Move data to the GPU
+        combined_img = combined_img.to(device)
+        person_pose = person_pose.to(device)
+        garment_pose = garment_pose.to(device)
+        ic_img = ic_img.to(device)
+        org_img = org_img.to(device)
 
-        # Zero the parameter gradients
         optimizer.zero_grad()
 
-        # Forward pass
-        outputs = model(ia_images, ia_images, jp_keypoints, jg_keypoints, ic_images)  # Placeholder for zt, not used
-        loss = criterion(outputs, ia_images)  # Placeholder for ground truth, assuming ia_images for demonstration
+        # Model's forward pass
+        output = model(combined_img, person_pose, garment_pose, ic_img)
 
-        # Backward pass and optimization
+        # Calculate loss
+        loss = criterion(output, org_img)  # Use original person image as the target
+
+        # Backpropagation and weight update
         loss.backward()
         optimizer.step()
 
-        # Update loss
         epoch_loss += loss.item()
+        num_batches += 1
 
-        # Print batch loss every 10 batches
-        if i % 10 == 9:
-            print(f"[{epoch + 1}, {i + 1}] loss: {epoch_loss / 10:.4f}")
-            epoch_loss = 0.0
+    avg_loss = epoch_loss / num_batches
+    print(f"Epoch {epoch+1}, Average Loss: {avg_loss}")
 
-    # Compute and store epoch loss
-    epoch_loss = epoch_loss / len(dataloader)
-    train_loss_history.append(epoch_loss)
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.4f}")
-
-# Final training loss
-train_loss_history[-1]
+print("Training complete.")

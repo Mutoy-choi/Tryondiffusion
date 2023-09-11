@@ -8,9 +8,9 @@ class ParallelUNet(nn.Module):
         self.garment_unet = GarmentUNet(emb_dim, config['garment_unet'])
         self.person_unet = PersonUNet(emb_dim, config['person_unet'])
 
-    def forward(self, x, emb, seg_garment):
-        g_feature = self.garment_unet(seg_garment, emb)
-        deno_x = self.person_unet(x, g_feature, emb)
+    def forward(self, x, gar_emb, pose_emb, seg_garment):
+        g_feature = self.garment_unet(seg_garment, gar_emb)
+        deno_x = self.person_unet(x, g_feature, pose_emb)
 
         return deno_x
 
@@ -26,6 +26,7 @@ class GarmentUNet(nn.Module):
         self.ustack = UStack(emb_dim, config['ustack'])
 
     def forward(self, x, emb):
+
         x = self.conv1(x)
         x, d_list = self.dstack(x, emb, None)
         x, u_list = self.ustack(x, d_list, emb, None)
@@ -42,7 +43,8 @@ class PersonUNet(nn.Module):
         self.conv1 = nn.Conv2d(img_channel, unet_channel, 3, padding=1)  # channels
         self.dstack = DStack(emb_dim, config['dstack'])
         self.ustack = UStack(emb_dim, config['ustack'])
-        self.conv2 = nn.Conv2d(unet_channel, img_channel, 3)
+        self.conv2 = nn.Conv2d(unet_channel, img_channel, 3, padding=1)
+
 
     def forward(self, x, g_feature, emb):
         garment_d, garment_u = g_feature
@@ -200,8 +202,10 @@ class FiLM(nn.Module):
         self.fc_bias = nn.Linear(emb_dim, channels)
 
     def forward(self, x, emb):
-        scale = self.fc_scale(emb).unsqueeze(-1).unsqueeze(-1)
-        bias = self.fc_bias(emb).unsqueeze(-1).unsqueeze(-1)
+        batch_size, _, _, _ = x.size()
+        emb_flat = emb.view(batch_size, -1)  # Flatten the spatial dimensions
+        scale = self.fc_scale(emb_flat).unsqueeze(-1).unsqueeze(-1)
+        bias = self.fc_bias(emb_flat).unsqueeze(-1).unsqueeze(-1)
 
         return x * scale + bias
 
@@ -408,6 +412,3 @@ def debug():
 
 if __name__ == '__main__':
     debug()
-
-
-
