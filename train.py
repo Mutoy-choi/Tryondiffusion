@@ -2,9 +2,10 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from parallelUNet import ParallelUNet  # Assuming you have this class defined somewhere
+from lightparallelUNet import LightweightParallelUNet # Assuming you have this class defined somewhere
 from Customdataloader import CustomDataset  # Uncomment if CustomDataset is in a separate file
-from tqdm import tqdm
+from torch.cuda.amp import autocast, GradScaler
+import time
 
 torch.cuda.empty_cache()
 # Check if CUDA is available
@@ -21,7 +22,8 @@ transform = transforms.Compose([
 # Initialize dataset and dataloader
 json_file = "Data/Training/winfo_train_updated.json"
 dataset = CustomDataset(json_file, transform=transform)
-dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+dataloader = DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
+
 
 # Initialize model and optimizer
 IMG_CHANNEL = 3
@@ -108,43 +110,80 @@ parallel_config = {
     }
 }
 
-model = ParallelUNet(EMB_DIM, parallel_config)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+model = LightweightParallelUNet(EMB_DIM, parallel_config)
+optimizer = optim.AdamW(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss()  # Mean Squared Error Loss
 
-# Move the model to the GPU
-model.to(device)
+# Move the model to the GPU and convert to fp16
+model.to(device)  # Convert model to fp16
 
+# Initialize the gradient scaler for fp16
+scaler = GradScaler()
+
+# Define the number of steps for gradient accumulation
+accumulation_steps = 12  # You can adjust this value
+
+model.load_state_dict(torch.load('lightweight_parallel_unet_model_epoch_1.pt'))
 # Training loop
 for epoch in range(10):  # 10 epochs
+    epoch_start_time = time.time()
+    print(epoch_start_time)
     epoch_loss = 0.0
     num_batches = 0
 
+    optimizer.zero_grad(set_to_none=True)
+
     # Wrap your dataloader with tqdm for a progress bar
-    for combined_img, person_pose, garment_pose, ic_img, org_img in tqdm(dataloader, desc=f"Epoch {epoch+1}"):
-        # Move data to the GPU
+    for i, (combined_img, person_pose, garment_pose, ic_img, org_img) in enumerate(dataloader):
+
+        # Move data to the GPU and convert to fp16
         combined_img = combined_img.to(device)
         person_pose = person_pose.to(device)
         garment_pose = garment_pose.to(device)
         ic_img = ic_img.to(device)
         org_img = org_img.to(device)
 
-        optimizer.zero_grad()
+        # Enable autocast for mixed-precision training
+        with autocast():
+            # Model's forward pass
+            output = model(combined_img, person_pose, garment_pose, ic_img)
 
-        # Model's forward pass
-        output = model(combined_img, person_pose, garment_pose, ic_img)
+            # Calculate loss
+            loss = criterion(output, org_img)  # Use original person image as the target
+            loss = loss / accumulation_steps  # Normalize the loss because it is accumulated
 
-        # Calculate loss
-        loss = criterion(output, org_img)  # Use original person image as the target
+        # Backpropagation using gradient accumulation
+        scaler.scale(loss).backward()
 
-        # Backpropagation and weight update
-        loss.backward()
-        optimizer.step()
+        if (i + 1) % accumulation_steps == 0:  # Wait for several backward steps
+            print(f"Epoch {epoch + 1}, Batch {i + 1}, Loss: {loss.item() * accumulation_steps}")
+            epoch_loss += loss.item() * accumulation_steps
+            num_batches += 1
+            scaler.step(optimizer)  # Performs the optimizer step
+            scaler.update()  # Updates the scale for next iteration
+            optimizer.zero_grad()  # Reset gradients tensors
 
-        epoch_loss += loss.item()
+        epoch_loss += loss.item() * accumulation_steps  # Accumulate the true loss
         num_batches += 1
 
     avg_loss = epoch_loss / num_batches
-    print(f"Epoch {epoch+1}, Average Loss: {avg_loss}")
+    print(f"Epoch {epoch + 1}, Average Loss: {avg_loss}")
+
+    # After the epoch ends, calculate the elapsed time
+    epoch_end_time = time.time()
+    elapsed_time = epoch_end_time - epoch_start_time
+    print(f"Time taken for Epoch {epoch + 1}: {elapsed_time:.2f} seconds")
+    if epoch%2 == 0:
+        # Save the model after training is complete
+        torch.save(model.state_dict(), f"lightweight_parallel_unet_model_2_epoch_{epoch+1}.pt")
+
+        print("model saved.")
 
 print("Training complete.")
+
+# Save the model after training is complete
+torch.save(model.state_dict(), "lightweight_parallel_unet_model.pt")
+
+print("Training complete and model saved.")
+
+
