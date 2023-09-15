@@ -9,11 +9,11 @@ This repository is an attempt to implement the Tryondiffusion model. For more de
 
 The code was developed and tested on the following environment:
 
-Operating System: Windows server 2019
+* Operating System: Windows server 2019
 
-Python Version: Python 3.10
+* Python Version: Python 3.10
 
-CUDA 11.8
+* CUDA 11.8
 
 ## Getting Started
 
@@ -25,9 +25,27 @@ git clone https://github.com/Mutoy-choi/Tryondiffusion
 
 
 cd Tryondiffusion
+```
+This will clone the repository and navigate you into the project directory.
 
+### Set Up Virtual Environment
 
+```
+python -m venv venv
+
+.\venv\Scripts\activate
+```
+
+These commands create and activate a virtual environment named venv. This isolates the project dependencies, making it easier to manage.
+
+### Install Dependencies
+
+```
 pip install -r requirements.txt
+```
 
+### Run the Example Training code
 
+```
 python one_shot_test.py
+```
