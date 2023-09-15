@@ -12,4 +12,5 @@ To get started, first clone this repository by running the following command in 
 git clone https://github.com/Mutoy-choi/Tryondiffusion
 
 cd Tryondiffusion
+
 python one_shot_test.py
