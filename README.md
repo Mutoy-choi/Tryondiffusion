@@ -2,12 +2,13 @@
 
 ## Introduction
 This repository is an attempt to implement the Tryondiffusion model. For more details, visit the [official Tryondiffusion website](https://tryondiffusion.github.io/).
-![image](https://github.com/Mutoy-choi/Tryondiffusion/assets/87027571/aad90a30-a7ca-45b1-9942-79426ca71e8b)
-![image](https://github.com/Mutoy-choi/Tryondiffusion/assets/87027571/dad7db0d-3ea5-40a8-9ce0-0b4065451a39)
+
+![image](https://github.com/Mutoy-choi/Tryondiffusion/assets/87027571/a3b9b53c-f6a3-4a52-8c3d-e7c26d50c55e)
+
 ## Getting Started
 
 ### Clone the Repository
-To get started, first clone this repository by running the following command in your terminal:
+To get started with training examples, first clone this repository by running the following command in your terminal:
 
 ```bash
 git clone https://github.com/Mutoy-choi/Tryondiffusion
