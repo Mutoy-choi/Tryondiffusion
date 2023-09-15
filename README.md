@@ -10,7 +10,9 @@ This repository is an attempt to implement the Tryondiffusion model. For more de
 The code was developed and tested on the following environment:
 
 Operating System: Windows server 2019
+
 Python Version: Python 3.10
+
 CUDA 11.8
 
 ## Getting Started
