@@ -131,7 +131,6 @@ scaler = GradScaler()
 # Define the number of steps for gradient accumulation
 accumulation_steps = 12  # You can adjust this value
 
-model.load_state_dict(torch.load('lightweight_parallel_unet_model_epoch_1.pt'))
 # Training loop
 for epoch in range(10):  # 10 epochs
     epoch_start_time = time.time()
