@@ -49,3 +49,5 @@ pip install -r requirements.txt
 ```
 python one_shot_test.py
 ```
+
+This file allows you to know if the model is working well or not using example data
