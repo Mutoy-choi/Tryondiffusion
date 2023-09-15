@@ -1,8 +1,9 @@
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from torchvision import transforms
-from lightparallelUNet import LightweightParallelUNet # Assuming you have this class defined somewhere
+from lightparallelUNet import LightweightParallelUNet  # Assuming you have this class defined somewhere
 from parallelUNet import ParallelUNet
 from Customdataloader import CustomDataset  # Uncomment if CustomDataset is in a separate file
 from torch.cuda.amp import autocast, GradScaler
@@ -21,15 +22,14 @@ transform = transforms.Compose([
 ])
 
 # Initialize dataset and dataloader
-json_file = "Data/Training/winfo_train_updated.json"
+json_file = "data/Training/winfo_train_updated.json"
 dataset = CustomDataset(json_file, transform=transform)
 dataloader = DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
-
 
 # Initialize model and optimizer
 IMG_CHANNEL = 3
 
-EMB_DIM =51
+EMB_DIM = 51
 
 parallel_config = {
     'garment_unet': {
@@ -124,12 +124,12 @@ criterion = torch.nn.MSELoss()  # Mean Squared Error Loss
 model1.to(device)
 model2.to(device)
 
-
 # Initialize the gradient scaler for fp16
 scaler = GradScaler()
 
 # Define the number of steps for gradient accumulation
 accumulation_steps = 12  # You can adjust this value
+
 
 # Training loop
 for epoch in range(10):  # 10 epochs
@@ -138,7 +138,8 @@ for epoch in range(10):  # 10 epochs
     epoch_loss = 0.0
     num_batches = 0
 
-    optimizer.zero_grad(set_to_none=True)
+    optimizer1.zero_grad(set_to_none=True)
+    optimizer2.zero_grad(set_to_none=True)
 
     # Wrap your dataloader with tqdm for a progress bar
     for i, (combined_img, person_pose, garment_pose, ic_img, org_img) in enumerate(dataloader):
@@ -155,7 +156,10 @@ for epoch in range(10):  # 10 epochs
             # Model 1's forward pass and loss calculation
             output1 = model1(combined_img, person_pose, garment_pose, ic_img)
             loss1 = criterion(output1, org_img)  # Use original person image as the target
-    
+
+            # Upsample output1 from 128x128 to 256x256
+            output1_upsampled = F.interpolate(output1, size=(256, 256), mode='bilinear', align_corners=True)
+
             # Model 2's forward pass and loss calculation
             output2 = model2(output1, person_pose, garment_pose, ic_img)  # Using output1 as input to model2
             loss2 = criterion(output2, org_img)
@@ -169,11 +173,11 @@ for epoch in range(10):  # 10 epochs
 
         if (i + 1) % accumulation_steps == 0:  # Wait for several backward steps
             print(f"Epoch {epoch + 1}, Batch {i + 1}, Loss: {loss.item() * accumulation_steps}")
-            epoch_loss += loss.item() * accumulation_steps
-            num_batches += 1
-            scaler.step(optimizer)  # Performs the optimizer step
+            scaler.step(optimizer1)  # Performs the optimizer step for model1
+            scaler.step(optimizer2)  # Performs the optimizer step for model2
             scaler.update()  # Updates the scale for next iteration
-            optimizer.zero_grad()  # Reset gradients tensors
+            optimizer1.zero_grad()  # Reset gradients tensors for model1
+            optimizer2.zero_grad()  # Reset gradients tensors for model2
 
         epoch_loss += loss.item() * accumulation_steps  # Accumulate the true loss
         num_batches += 1
@@ -185,17 +189,13 @@ for epoch in range(10):  # 10 epochs
     epoch_end_time = time.time()
     elapsed_time = epoch_end_time - epoch_start_time
     print(f"Time taken for Epoch {epoch + 1}: {elapsed_time:.2f} seconds")
-    if epoch%2 == 0:
-        # Save the model after training is complete
-        torch.save(model.state_dict(), f"lightweight_parallel_unet_model_2_epoch_{epoch+1}.pt")
+    # Save the models
+    if epoch % 2 == 0:
+        torch.save(model1.state_dict(), f"lightweight_parallel_unet_model1_epoch_{epoch + 1}.pt")
+        torch.save(model2.state_dict(), f"parallel_unet_model2_epoch_{epoch + 1}.pt")
+        print("Models saved.")
 
-        print("model saved.")
 
 print("Training complete.")
-
-# Save the model after training is complete
-torch.save(model.state_dict(), "lightweight_parallel_unet_model.pt")
-
-print("Training complete and model saved.")
 
 
