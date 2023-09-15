@@ -3,6 +3,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from lightparallelUNet import LightweightParallelUNet # Assuming you have this class defined somewhere
+from parallelUNet import ParallelUNet
 from Customdataloader import CustomDataset  # Uncomment if CustomDataset is in a separate file
 from torch.cuda.amp import autocast, GradScaler
 import time
@@ -110,12 +111,19 @@ parallel_config = {
     }
 }
 
-model = LightweightParallelUNet(EMB_DIM, parallel_config)
-optimizer = optim.AdamW(model.parameters(), lr=0.0001)
+# Initialize both models and their optimizers
+model1 = LightweightParallelUNet(EMB_DIM, parallel_config)
+model2 = ParallelUNet(EMB_DIM, parallel_config)  # Assuming you have a ParallelUNet class
+
+optimizer1 = optim.AdamW(model1.parameters(), lr=0.0001)
+optimizer2 = optim.AdamW(model2.parameters(), lr=0.0001)
+
 criterion = torch.nn.MSELoss()  # Mean Squared Error Loss
 
-# Move the model to the GPU and convert to fp16
-model.to(device)  # Convert model to fp16
+# Move both models to the GPU
+model1.to(device)
+model2.to(device)
+
 
 # Initialize the gradient scaler for fp16
 scaler = GradScaler()
@@ -145,11 +153,16 @@ for epoch in range(10):  # 10 epochs
 
         # Enable autocast for mixed-precision training
         with autocast():
-            # Model's forward pass
-            output = model(combined_img, person_pose, garment_pose, ic_img)
+            # Model 1's forward pass and loss calculation
+            output1 = model1(combined_img, person_pose, garment_pose, ic_img)
+            loss1 = criterion(output1, org_img)  # Use original person image as the target
+    
+            # Model 2's forward pass and loss calculation
+            output2 = model2(output1, person_pose, garment_pose, ic_img)  # Using output1 as input to model2
+            loss2 = criterion(output2, org_img)
 
-            # Calculate loss
-            loss = criterion(output, org_img)  # Use original person image as the target
+            # Combine the losses if needed
+            loss = loss1 + loss2
             loss = loss / accumulation_steps  # Normalize the loss because it is accumulated
 
         # Backpropagation using gradient accumulation
