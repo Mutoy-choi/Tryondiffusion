@@ -22,7 +22,7 @@ transform = transforms.Compose([
 ])
 
 # Initialize dataset and dataloader
-json_file = "data/Training/winfo_train_updated.json"
+json_file = "trainexample/exampled_json_file.json"
 dataset = CustomDataset(json_file, transform=transform)
 dataloader = DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
 
