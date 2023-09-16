@@ -19,17 +19,17 @@ class CustomDataset(Dataset):
         while True:
             try:
                 data = self.data_list[idx]
-                wearing_img_path = os.path.join("Data/Training/blur_model", data["wearing"])
-                ia_img_path = os.path.join("Data/Training/Ia", data["wearing"])
-                org_img_path = os.path.join("Data/Training/resized_org_model", data["wearing"])  # Original person image
+                wearing_img_path = os.path.join("trainexample/blur_model", data["wearing"])
+                ia_img_path = os.path.join("trainexample/Ia", data["wearing"])
+                org_img_path = os.path.join("trainexample/resized_org_model", data["wearing"])  # Original person image
 
 
                 target_top = data['inner_top'] if data['inner_top'] is not None else data['main_top']
 
-                jg_json_path = os.path.join("Data/Training/Jg", f"{target_top}_F.json")
-                ic_img_path = os.path.join("Data/Training/Ic", f"{target_top}_F.jpg")
+                jg_json_path = os.path.join("trainexample/Jg", f"{target_top}_F.json")
+                ic_img_path = os.path.join("trainexample/Ic", f"{target_top}_F.jpg")
 
-                jp_json_path = os.path.join("Data/Training/Jp", data["wearing"].replace(".jpg", ".json"))
+                jp_json_path = os.path.join("trainexample/Jp", data["wearing"].replace(".jpg", ".json"))
 
                 wearing_img = Image.open(wearing_img_path).convert('RGB')
                 ia_img = Image.open(ia_img_path).convert('RGB')
