@@ -44,7 +44,87 @@ IMG_CHANNEL = 3
 
 EMB_DIM = 51
 
-parallel_config = {
+parallel_config_128 = {
+    'garment_unet': {
+        'dstack': {
+            'blocks': [
+                {
+                    'channels': 128,
+                    'repeat': 3
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
+                    'channels': 1024,
+                    'repeat': 7
+                }]
+        },
+        'ustack': {
+            'blocks': [
+                {
+                    'channels': 1024,
+                    'repeat': 7
+                },
+                {
+                    'channels': 512,
+                    'repeat': 6
+                }]
+        }
+    },
+    'person_unet': {
+        'dstack': {
+            'blocks': [
+                {
+                    'channels': 128,
+                    'repeat': 3
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
+
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 1024,
+                    'repeat': 7
+                }]
+        },
+        'ustack': {
+            'blocks': [
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 1024,
+                    'repeat': 7
+                },
+                {
+                    'block_type': 'FiLM_ResBlk_Self_Cross',
+                    'channels': 512,
+                    'repeat': 6
+                },
+                {
+                    'channels': 256,
+                    'repeat': 4
+                },
+                {
+                    'channels': 128,
+                    'repeat': 3
+                }]
+        }
+    }
+}
+
+parallel_config_256 = {
     'garment_unet': {
         'dstack': {
             'blocks': [
@@ -125,8 +205,8 @@ parallel_config = {
 }
 
 # Initialize both models and their optimizers
-model1 = LightweightParallelUNet(EMB_DIM, parallel_config)
-model2 = ParallelUNet(EMB_DIM, parallel_config)  # Assuming you have a ParallelUNet class
+model1 = parallelUNet(EMB_DIM, parallel_config_128)
+model2 = ParallelUNet(EMB_DIM, parallel_config_256)  # Assuming you have a ParallelUNet class
 model3 = EfficientUNet()
 
 optimizer1 = optim.AdamW(model1.parameters(), lr=0.0001)
