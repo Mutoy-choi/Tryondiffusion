@@ -205,7 +205,7 @@ parallel_config_256 = {
 }
 
 # Initialize both models and their optimizers
-model1 = parallelUNet(EMB_DIM, parallel_config_128)
+model1 = ParallelUNet(EMB_DIM, parallel_config_128)
 model2 = ParallelUNet(EMB_DIM, parallel_config_256)  # Assuming you have a ParallelUNet class
 model3 = EfficientUNet()
 
