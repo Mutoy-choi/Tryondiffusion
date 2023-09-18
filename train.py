@@ -112,7 +112,7 @@ parallel_config = {
 }
 
 # Initialize both models and their optimizers
-model1 = LightweightParallelUNet(EMB_DIM, parallel_config)
+model1 = ParallelUNet(EMB_DIM, parallel_config)
 model2 = ParallelUNet(EMB_DIM, parallel_config)  # Assuming you have a ParallelUNet class
 
 optimizer1 = optim.AdamW(model1.parameters(), lr=0.0001)
