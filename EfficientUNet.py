@@ -3,8 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import timm
-from parallelUNet import ParallelUNet
-
 
 class Swish(nn.Module):
     def forward(self, x):
@@ -171,17 +169,14 @@ class EfficientUNet(nn.Module):
         self.concat_input = True
 
         # Initial Convolution layer
-        self.init_conv = nn.Conv2d(3, 1024, kernel_size=3, padding=1, bias=False)
+        self.init_conv = nn.Conv2d(3, 256, kernel_size=3, padding=1, bias=False)
 
-        # DBlocks
-        self.dblock_1024 = DBlock(1024, 512, stride=(2, 2), numResNetBlocksPerBlock=8, use_self_attention=False)
-        self.dblock_512 = DBlock(512, 256, stride=(2, 2), numResNetBlocksPerBlock=8)
+         # DBlocks
         self.dblock_256 = DBlock(256, 128, stride=(2, 2), numResNetBlocksPerBlock=4)
         self.dblock_128 = DBlock(128, 64, stride=(2, 2), numResNetBlocksPerBlock=2)
         self.dblock_64 = DBlock(64, 32, stride=(2, 2))
         self.dblock_32 = DBlock(32, 16, stride=(2, 2))
-        self.dblock_16 = DBlock(16, 16, stride=(2, 2))
-
+        
         # UBlocks
         self.ublock_16 = UBlock(16, 32, stride=(2, 2))
         self.ublock_32 = UBlock(32, 64, stride=(2, 2))
@@ -189,10 +184,10 @@ class EfficientUNet(nn.Module):
         self.ublock_128 = UBlock(128, 256, stride=(2, 2))
         self.ublock_256 = UBlock(256, 512, stride=(2, 2))
         self.ublock_512 = UBlock(512, 1024, stride=(2, 2))
-        self.ublock_1024 = UBlock(1024, 1024, stride=(2, 2))
+
 
         # Final Dense layer
-        self.dense = nn.Conv2d(256, 3, kernel_size=1, stride=1, bias=True)
+        self.dense = nn.Conv2d(1024, 3, kernel_size=1, stride=1, bias=True)
 
     @property  # 각 efficientnet version에 따른 채널 수를 할당하는 메소드
     def n_channels(self):
@@ -215,28 +210,21 @@ class EfficientUNet(nn.Module):
         x = self.init_conv(x)
 
         # DBlock forward passes with skip connections
-        skip_1024 = self.dblock_1024(x)
-        skip_512 = self.dblock_512(skip_1024)
-        skip_256 = self.dblock_256(skip_512)
+        skip_256 = self.dblock_256(x)
         skip_128 = self.dblock_128(skip_256)
         skip_64 = self.dblock_64(skip_128)
-        skip_32 = self.dblock_32(skip_64)
-        x = self.dblock_16(skip_32)
-
+        x = self.dblock_32(skip_64)
+        
         # UBlock forward passes with skip connections
-        x = self.ublock_16(x)
-        x += skip_32
         x = self.ublock_32(x)
-        x += skip_64
         x = self.ublock_64(x)
-        x += skip_128
+        x = torch.cat([x, skip_64], dim=1)  # Skip connection using concat
         x = self.ublock_128(x)
-        x += skip_256
+        x = torch.cat([x, skip_128], dim=1)  # Skip connection using concat
         x = self.ublock_256(x)
-        x += skip_512
+        x = torch.cat([x, skip_256], dim=1)  # Skip connection using concat
         x = self.ublock_512(x)
-        x += skip_1024
-        x = self.ublock_1024(x)
+
 
         # input image와 final output 출력 연결
         if self.concat_input:
@@ -244,6 +232,7 @@ class EfficientUNet(nn.Module):
 
         x = self.dense(x)
         return x
+        
 
 # 각 버전별 U-Net 모델을 반환하는 함수들
 def get_efficientunet_b0():
