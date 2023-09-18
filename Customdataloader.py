@@ -4,6 +4,7 @@ import json
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import torchvision.transforms.functional as TF
 import numpy as np
 
 class CustomDataset(Dataset):
@@ -56,3 +57,38 @@ class CustomDataset(Dataset):
 
             except FileNotFoundError:
                 idx = (idx + 1) % len(self.data_list)  # Move to the next item
+
+class SuperResolutionDataset(Dataset):
+    def __init__(self, image_dir, crop_size=256, downscale_factor=4):
+        self.image_dir = image_dir
+        self.image_list = os.listdir(image_dir)
+        self.crop_size = crop_size
+        self.downscale_factor = downscale_factor
+
+    def __len__(self):
+        return len(self.image_list)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.image_dir, self.image_list[idx])
+        img = Image.open(img_path).convert('RGB')
+
+        # Random cropping to get ground-truth patch
+        i, j, h, w = transforms.RandomCrop.get_params(
+            img, output_size=(self.crop_size, self.crop_size))
+        ground_truth = TF.crop(img, i, j, h, w)
+
+        # Downsample ground-truth patch to create input image
+        input_image = ground_truth.resize(
+            (self.crop_size // self.downscale_factor, self.crop_size // self.downscale_factor),
+            Image.BICUBIC)
+
+        # Apply noise conditioning augmentation if needed
+        # ...
+
+        # Convert to tensor
+        ground_truth = TF.to_tensor(ground_truth)
+        input_image = TF.to_tensor(input_image)
+
+        return input_image, ground_truth
+
+
