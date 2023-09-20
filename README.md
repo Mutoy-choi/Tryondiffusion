@@ -13,7 +13,11 @@ The code was developed and tested on the following environment:
 
 * Python Version: Python 3.10
 
+* GPU : NVIDIA Tesla T4 16GB
+
 * CUDA 11.8
+
+
 
 ## Getting Started
 
