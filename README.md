@@ -51,10 +51,10 @@ pip install -r requirements.txt
 ### Run the Example Training code
 
 ```
-python one_shot_test.py
+python one_shot_test_ParallelUnet.py
 ```
 
-This file allows you to know if the model is working well or not using example data
+This file allows you to know if the model is working well or not using example data for ParallelUnet(From 128x128 to 256*256)
 
 ## Further upload
 * imply super resolution dataset and dataloader
