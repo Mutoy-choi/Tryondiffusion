@@ -1,6 +1,6 @@
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from Customdataloader import EfficientUNetDataLoader
+from dataloader import EfficientUnetDataloader
 from EfficientUNet import EfficientUNet
 
 
@@ -8,7 +8,7 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-dataset = EfficientUNetDataLoader(root_dir="path_to_images", transform=transform)
+dataset = EfficientUnetDataloader(root_dir="path_to_images", transform=transform)
 dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
