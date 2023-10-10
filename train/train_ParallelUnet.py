@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from lightparallelUNet import LightweightParallelUNet  # Assuming you have this class defined somewhere
 from parallelUNet import ParallelUNet
-from dataloader import ParallelUnetDataloader  # Uncomment if CustomDataset is in a separate file
+from dataloader import ParallelUnetDataloader_AIHub  # Uncomment if CustomDataset is in a separate file
 from torch.cuda.amp import autocast, GradScaler
 import time
 
