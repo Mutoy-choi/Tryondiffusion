@@ -23,7 +23,7 @@ transform = transforms.Compose([
 
 # Initialize dataset and dataloader
 json_file = "trainexample/exampled_json_file.json"
-dataset = ParallelUnetDataloader(json_file, transform=transform)
+dataset = ParallelUnetDataloader_AIHub(json_file, transform=transform)
 dataloader = DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
 
 # Initialize model and optimizer
