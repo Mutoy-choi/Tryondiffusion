@@ -59,3 +59,19 @@ This file allows you to know if the model is working well or not using example d
 ## Further upload
 * update preprocessing AI-Hub data
   
+Deployment content and amount of data provided
+
+Studio fashion video (model photo) 6,741,328 cases
+
+Studio Fashion Video Model Key Points: 120,936 Cases
+
+Studio Fashion Video Model Semantic: 120,936 cases
+
+Fashion products and fashion video pair: 117,270 cases
+
+Fashion product representative photos (product photos) 40,036 cases
+
+Fashion product key points: 40,036 cases
+
+Fashion Product Semantic: 40,036 cases
+  
