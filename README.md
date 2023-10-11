@@ -58,8 +58,9 @@ This file allows you to know if the model is working well or not using example d
 
 ## Further upload
 * update preprocessing AI-Hub data
+https://aihub.or.kr/aihubdata/data/view.do?currMenu=115&topMenu=100&aihubDataSe=realm&dataSetSn=78
   
-Deployment content and amount of data provided
+ Deployment content and amount of data provided
 
 Studio fashion video (model photo) 6,741,328 cases
 
