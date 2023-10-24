@@ -19,16 +19,22 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 num_epochs = 10
 
 for epoch in range(num_epochs):
-    for batch_idx, (inputs, targets) in enumerate(dataloader):
-        inputs, targets = inputs.to(device), targets.to(device)
-
+    for i, (noisy_images, clean_images) in enumerate(dataloader):
+        # Zero the parameter gradients
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
+
+        # Forward pass
+        outputs = model(noisy_images)
+
+        # Compute loss
+        loss = criterion(outputs, clean_images)
+
+        # Backward pass and optimization
         loss.backward()
         optimizer.step()
 
-        if batch_idx % 10 == 0:
-            print(f"Epoch [{epoch+1}/{num_epochs}], Step [{batch_idx+1}/{len(dataloader)}], Loss: {loss.item():.4f}")
+        # Print statistics
+        if i % 10 == 0:
+            print(f'Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(dataloader)}], Loss: {loss.item():.4f}')
 
 print("Training complete!")
