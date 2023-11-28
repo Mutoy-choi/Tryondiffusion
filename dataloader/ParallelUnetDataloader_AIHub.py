@@ -7,7 +7,7 @@ from torchvision import transforms
 import torchvision.transforms.functional as TF
 import numpy as np
 
-class CustomDataset(Dataset):
+class ParallelUnetDataloader_AIHub(Dataset):
     def __init__(self, json_path, transform=None):
         with open(json_path, 'r') as f:
             self.data_list = json.load(f)
