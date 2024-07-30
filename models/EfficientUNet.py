@@ -48,16 +48,11 @@ class EfficientUNet(nn.Module):
 
 
 
-# 디버깅을 위한 코드
 if __name__ == "__main__":
-    # 임의의 텐서 생성 (배치 크기: 1, 채널: 3, 높이: 256, 너비: 256)
     x = torch.randn(1, 3, 256, 256)
     
-    # 모델 생성
     model = EfficientUNet()
     
-    # 모델의 forward 메서드 호출
     out = model(x)
     
-    # 출력 텐서의 크기 출력
     print("Output tensor shape:", out.shape)

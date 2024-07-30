@@ -15,10 +15,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from torchvision import transforms
-from LightweightParallelUNet import LightweightParallelUNet  # Assuming you have this class defined somewhere
-from parallelUNet import ParallelUNet
-from EfficientUNet import EfficientUNet
-from ParallelUnetDataloader_AIHub import CustomDataset  # Uncomment if CustomDataset is in a separate file
+from models import LightweightParallelUNet, ParallelUNet, EfficientUNet
+from dataloader import ParallelUnetDataloader_AIHub  
 from torch.cuda.amp import autocast, GradScaler
 import time
 
@@ -36,7 +34,7 @@ transform = transforms.Compose([
 
 # Initialize dataset and dataloader
 json_file = "trainexample/exampled_json_file.json"
-dataset = CustomDataset(json_file, transform=transform)
+dataset = ParallelUnetDataloader_AIHub(json_file, transform=transform)
 dataloader = DataLoader(dataset, batch_size=1, shuffle=True, pin_memory=True)
 
 # Initialize model and optimizer

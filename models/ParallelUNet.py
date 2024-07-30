@@ -400,10 +400,11 @@ def debug():
 
     x = torch.randn(1, IMG_CHANNEL, 128, 128)
     garment_x = torch.randn(1, IMG_CHANNEL, 128, 128)
-    emb = torch.randn(128)
+    gar_emb = torch.randn(128)
+    pose_emb = torch.randn(128)
 
     parallel_unet = ParallelUNet(EMB_DIM, parallel_config)
-    print(parallel_unet(x, emb, garment_x))
+    print(parallel_unet(x, gar_emb, pose_emb, garment_x))
 
     pytorch_total_params = sum(p.numel() for p in parallel_unet.parameters() if p.requires_grad)
 
