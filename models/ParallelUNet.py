@@ -35,7 +35,7 @@ class GarmentUNet(nn.Module):
 
 
 class PersonUNet(nn.Module):
-    def __init__(self, emb_dim, config, img_channel=3) -> None:
+    def __init__(self, emb_dim, config, img_channel=6) -> None:
         super().__init__()
 
         unet_channel = config['dstack']['blocks'][0]['channels']
@@ -43,7 +43,7 @@ class PersonUNet(nn.Module):
         self.conv1 = nn.Conv2d(img_channel, unet_channel, 3, padding=1)  # channels
         self.dstack = DStack(emb_dim, config['dstack'])
         self.ustack = UStack(emb_dim, config['ustack'])
-        self.conv2 = nn.Conv2d(unet_channel, img_channel, 3, padding=1)
+        self.conv2 = nn.Conv2d(unet_channel, img_channel//2, 3, padding=1)
 
 
     def forward(self, x, g_feature, emb):
@@ -197,16 +197,18 @@ class FiLMResBlkSelfCross(nn.Module):
 class FiLM(nn.Module):
     def __init__(self, emb_dim, channels) -> None:
         super().__init__()
-
-        self.fc_scale = nn.Linear(emb_dim, channels)
-        self.fc_bias = nn.Linear(emb_dim, channels)
-
+        
+        self.fc_emb = nn.Linear(emb_dim, channels)
+        self.fc_scale = nn.Linear(channels, channels)
+        self.fc_bias = nn.Linear(channels, channels)
+    
     def forward(self, x, emb):
-        batch_size, _, _, _ = x.size()
-        emb_flat = emb.view(batch_size, -1)  # Flatten the spatial dimensions
-        scale = self.fc_scale(emb_flat).unsqueeze(-1).unsqueeze(-1)
-        bias = self.fc_bias(emb_flat).unsqueeze(-1).unsqueeze(-1)
-
+        batch_size, channels, height, width = x.size()
+        emb_channel = self.fc_emb(emb)
+        
+        scale = self.fc_scale(emb_channel).view(batch_size, channels, 1, 1)
+        bias = self.fc_bias(emb_channel).view(batch_size, channels, 1, 1)
+        
         return x * scale + bias
 
 
@@ -316,7 +318,7 @@ class CrossAttention(nn.Module):
 def debug():
     IMG_CHANNEL = 3
 
-    EMB_DIM = 128
+    EMB_DIM = 13
 
     parallel_config = {
         'garment_unet': {
@@ -399,16 +401,18 @@ def debug():
     }
 
     x = torch.randn(1, IMG_CHANNEL, 128, 128)
+    cloth_agonist_x = torch.randn(1, IMG_CHANNEL, 128, 128)
+    input_x = torch.concat([x, cloth_agonist_x], 1)
     garment_x = torch.randn(1, IMG_CHANNEL, 128, 128)
-    gar_emb = torch.randn(128)
-    pose_emb = torch.randn(128)
+    gar_emb = torch.randn(13)
+    pose_emb = torch.randn(13)
 
     parallel_unet = ParallelUNet(EMB_DIM, parallel_config)
-    print(parallel_unet(x, gar_emb, pose_emb, garment_x))
+    print(f"Shape of output : {parallel_unet(input_x, gar_emb, pose_emb, garment_x).shape}")
 
     pytorch_total_params = sum(p.numel() for p in parallel_unet.parameters() if p.requires_grad)
 
-    print(pytorch_total_params)
+    print(f"Total Params:{pytorch_total_params}")
 
 
 if __name__ == '__main__':

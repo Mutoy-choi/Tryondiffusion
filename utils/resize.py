@@ -23,9 +23,8 @@ def crop_and_resize(image_path, output_path, crop_size=(720, 720), resize_size=(
 
         resized_img.save(output_path)
 
-# 이미지가 저장된 디렉토리
-image_directory = "Data/Training/org_model"  # 실제 경로로 변경하세요
-output_directory = "Data/Training/resized_org_model"  # 실제 경로로 변경하세요
+image_directory = "Data/Training/org_model" 
+output_directory = "Data/Training/resized_org_model" 
 
 # 디렉토리 생성 (존재하지 않을 경우)
 if not os.path.exists(output_directory):
@@ -36,7 +35,7 @@ for filename in os.listdir(image_directory):
         image_path = os.path.join(image_directory, filename)
         output_path = os.path.join(output_directory, filename)
 
-        print(f"Processing: {image_path}")  # 경로 출력
+        print(f"Processing: {image_path}") 
 
         try:
             crop_and_resize(image_path, output_path)
